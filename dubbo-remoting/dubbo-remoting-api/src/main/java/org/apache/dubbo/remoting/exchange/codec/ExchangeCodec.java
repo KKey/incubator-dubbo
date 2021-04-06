@@ -66,9 +66,9 @@ public class ExchangeCodec extends TelnetCodec {
     @Override
     public void encode(Channel channel, ChannelBuffer buffer, Object msg) throws IOException {
         if (msg instanceof Request) {
-            encodeRequest(channel, buffer, (Request) msg);
+            encodeRequest(channel, buffer, (Request) msg);//请求编码
         } else if (msg instanceof Response) {
-            encodeResponse(channel, buffer, (Response) msg);
+            encodeResponse(channel, buffer, (Response) msg);//回应编码
         } else {
             super.encode(channel, buffer, msg);
         }
@@ -209,12 +209,12 @@ public class ExchangeCodec extends TelnetCodec {
 
     protected void encodeRequest(Channel channel, ChannelBuffer buffer, Request req) throws IOException {
         Serialization serialization = getSerialization(channel);
-        // header.
+        // header. 消息头
         byte[] header = new byte[HEADER_LENGTH];
-        // set magic number.
+        // set magic number. 魔数，不知道干啥用的
         Bytes.short2bytes(MAGIC, header);
 
-        // set request and serialization flag.
+        // set request and serialization flag.  请求方式和序列化方式
         header[2] = (byte) (FLAG_REQUEST | serialization.getContentTypeId());
 
         if (req.isTwoWay()) {
@@ -225,7 +225,7 @@ public class ExchangeCodec extends TelnetCodec {
         }
 
         // set request id.
-        Bytes.long2bytes(req.getId(), header, 4);
+        Bytes.long2bytes(req.getId(), header, 4);//请求ID
 
         // encode request data.
         int savedWriteIndex = buffer.writerIndex();

@@ -43,15 +43,20 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * DefaultFuture.
+ * KKEY future优化
+ * KKEY 每个连接对应一个DefaultFuture，对应同一个HashedWheelTimer，HashedWheelTimer对应一个work线程，默认只处理512个请求
  */
 public class DefaultFuture implements ResponseFuture {
 
     private static final Logger logger = LoggerFactory.getLogger(DefaultFuture.class);
 
+    //KKEY channel缓存，key:请求ID，value: 通讯channel
     private static final Map<Long, Channel> CHANNELS = new ConcurrentHashMap<>();
 
+    //KKEY future缓存，key:请求ID，value: future
     private static final Map<Long, DefaultFuture> FUTURES = new ConcurrentHashMap<>();
 
+    //KKEY 时间轮，30毫秒跳一槽，默认512槽，默认1536毫秒走一圈。但是任务槽执行时阻塞的，前置阻塞可能导致后置堆积
     public static final Timer TIME_OUT_TIMER = new HashedWheelTimer(
             new NamedThreadFactory("dubbo-future-timeout", true),
             30,
@@ -63,7 +68,7 @@ public class DefaultFuture implements ResponseFuture {
     private final Request request;
     private final int timeout;
     private final Lock lock = new ReentrantLock();
-    private final Condition done = lock.newCondition();
+    private final Condition done = lock.newCondition();//同步等待锁
     private final long start = System.currentTimeMillis();
     private volatile long sent;
     private volatile Response response;
@@ -74,7 +79,7 @@ public class DefaultFuture implements ResponseFuture {
         this.request = request;
         this.id = request.getId();
         this.timeout = timeout > 0 ? timeout : channel.getUrl().getPositiveParameter(Constants.TIMEOUT_KEY, Constants.DEFAULT_TIMEOUT);
-        // put into waiting map.
+        // put into waiting map. KKEY 添加缓存
         FUTURES.put(id, this);
         CHANNELS.put(id, channel);
     }
@@ -83,8 +88,8 @@ public class DefaultFuture implements ResponseFuture {
      * check time out of the future
      */
     private static void timeoutCheck(DefaultFuture future) {
-        TimeoutCheckTask task = new TimeoutCheckTask(future);
-        TIME_OUT_TIMER.newTimeout(task, future.getTimeout(), TimeUnit.MILLISECONDS);
+        TimeoutCheckTask task = new TimeoutCheckTask(future);//KKEY 每次都新创建一个检测任务
+        TIME_OUT_TIMER.newTimeout(task, future.getTimeout(), TimeUnit.MILLISECONDS);//添加进时间轮并启动
     }
 
     /**
@@ -98,8 +103,9 @@ public class DefaultFuture implements ResponseFuture {
      * @return a new DefaultFuture
      */
     public static DefaultFuture newFuture(Channel channel, Request request, int timeout) {
+        //KKEY 重点：创建和初始化 DefaultFuture
         final DefaultFuture future = new DefaultFuture(channel, request, timeout);
-        // timeout check
+        // timeout check KKEY 重点：超时校验
         timeoutCheck(future);
         return future;
     }
@@ -142,11 +148,15 @@ public class DefaultFuture implements ResponseFuture {
         }
     }
 
+    /**
+     * KKEY 消息回调处理或者超时处理
+     */
     public static void received(Channel channel, Response response) {
         try {
+            //KKEY 删除future缓存
             DefaultFuture future = FUTURES.remove(response.getId());
             if (future != null) {
-                future.doReceived(response);
+                future.doReceived(response);//KKEY 执行回调逻辑
             } else {
                 logger.warn("The timeout response finally returned at "
                         + (new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new Date()))
@@ -155,7 +165,7 @@ public class DefaultFuture implements ResponseFuture {
                         + " -> " + channel.getRemoteAddress()));
             }
         } finally {
-            CHANNELS.remove(response.getId());
+            CHANNELS.remove(response.getId());//KKEY 删除缓存
         }
     }
 
@@ -173,8 +183,8 @@ public class DefaultFuture implements ResponseFuture {
             long start = System.currentTimeMillis();
             lock.lock();
             try {
-                while (!isDone()) {
-                    done.await(timeout, TimeUnit.MILLISECONDS);
+                while (!isDone()) {//KKEY 循环判断是否有消息返回
+                    done.await(timeout, TimeUnit.MILLISECONDS);//没有返回则等待
                     if (isDone() || System.currentTimeMillis() - start > timeout) {
                         break;
                     }
@@ -329,7 +339,7 @@ public class DefaultFuture implements ResponseFuture {
         lock.lock();
         try {
             response = res;
-            done.signalAll();
+            done.signalAll();//KKEY 唤醒同步阻塞
         } finally {
             lock.unlock();
         }

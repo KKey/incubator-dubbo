@@ -103,7 +103,7 @@ public class DubboInvoker<T> extends AbstractInvoker<T> {
                 return result;
             } else {//KKEY 同步有返回值
                 RpcContext.getContext().setFuture(null);
-                return (Result) currentClient.request(inv, timeout).get();//KKEY 发送RPC请求并阻塞等待结果返回唤醒
+                return (Result) currentClient.request(inv, timeout).get();//KKEY 发送RPC请求并阻塞等待结果返回唤醒 GET是关键
             }
         } catch (TimeoutException e) {
             throw new RpcException(RpcException.TIMEOUT_EXCEPTION, "Invoke remote method timeout. method: " + invocation.getMethodName() + ", provider: " + getUrl() + ", cause: " + e.getMessage(), e);

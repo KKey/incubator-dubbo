@@ -100,7 +100,7 @@ public class HeaderExchangeHandler implements ChannelHandlerDelegate {
         Object msg = req.getData();
         try {
             // handle data.
-            CompletableFuture<Object> future = handler.reply(channel, msg);
+            CompletableFuture<Object> future = handler.reply(channel, msg);//KKEY DubboProtocol::apply
             if (future.isDone()) {
                 res.setStatus(Response.OK);
                 res.setResult(future.get());

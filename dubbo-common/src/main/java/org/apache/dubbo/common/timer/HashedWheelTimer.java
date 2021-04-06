@@ -76,6 +76,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * and Hierarchical Timing Wheels: data structures to efficiently implement a
  * timer facility'</a>.  More comprehensive slides are located
  * <a href="http://www.cse.wustl.edu/~cdgill/courses/cs6874/TimingWheels.ppt">here</a>.
+ * KKEY 参考：
+ * https://zacard.net/2016/12/02/netty-hashedwheeltimer/
  */
 public class HashedWheelTimer implements Timer {
 
@@ -92,8 +94,9 @@ public class HashedWheelTimer implements Timer {
     private static final AtomicIntegerFieldUpdater<HashedWheelTimer> WORKER_STATE_UPDATER =
             AtomicIntegerFieldUpdater.newUpdater(HashedWheelTimer.class, "workerState");
 
-    private final Worker worker = new Worker();
-    private final Thread workerThread;
+    //KKEY 工作线程
+    private final Worker worker = new Worker();//工作内容
+    private final Thread workerThread;//工作线程
 
     private static final int WORKER_STATE_INIT = 0;
     private static final int WORKER_STATE_STARTED = 1;
@@ -216,6 +219,7 @@ public class HashedWheelTimer implements Timer {
      *                           this value is 0 or negative.
      * @throws NullPointerException     if either of {@code threadFactory} and {@code unit} is {@code null}
      * @throws IllegalArgumentException if either of {@code tickDuration} and {@code ticksPerWheel} is &lt;= 0
+     * KKEY 参考：https://zacard.net/2016/12/02/netty-hashedwheeltimer/
      */
     public HashedWheelTimer(
             ThreadFactory threadFactory,
@@ -236,7 +240,7 @@ public class HashedWheelTimer implements Timer {
         }
 
         // Normalize ticksPerWheel to power of two and initialize the wheel.
-        wheel = createWheel(ticksPerWheel);
+        wheel = createWheel(ticksPerWheel);//KKEY 初始化轮槽
         mask = wheel.length - 1;
 
         // Convert tickDuration to nanos.
@@ -248,7 +252,7 @@ public class HashedWheelTimer implements Timer {
                     "tickDuration: %d (expected: 0 < tickDuration in nanos < %d",
                     tickDuration, Long.MAX_VALUE / wheel.length));
         }
-        workerThread = threadFactory.newThread(worker);
+        workerThread = threadFactory.newThread(worker);//KKEY 创建线程
 
         this.maxPendingTimeouts = maxPendingTimeouts;
 
@@ -324,6 +328,7 @@ public class HashedWheelTimer implements Timer {
         // Wait until the startTime is initialized by the worker.
         while (startTime == 0) {
             try {
+                //KKEY 启动时间被初始化之前阻塞当前线程，等work开始执行设置了startTime之后，执行唤醒，就是说一定要等超时线程开始跑了
                 startTimeInitialized.await();
             } catch (InterruptedException ignore) {
                 // Ignore - it will be ready very soon.
@@ -392,7 +397,7 @@ public class HashedWheelTimer implements Timer {
                     + "timeouts (" + maxPendingTimeouts + ")");
         }
 
-        start();
+        start();//KKEY 超时启动线程，只启动一次，用原子类控制
 
         // Add the timeout to the timeout queue which will be processed on the next tick.
         // During processing all the queued HashedWheelTimeouts will be added to the correct HashedWheelBucket.
@@ -402,6 +407,7 @@ public class HashedWheelTimer implements Timer {
         if (delay > 0 && deadline < 0) {
             deadline = Long.MAX_VALUE;
         }
+        //KKEY TODO  定时任务不是直接加到对应的格子中，而是先加入到一个队列里，然后等到下一个tick的时候，会从队列里取出最多100000个任务加入到指定的格子中
         HashedWheelTimeout timeout = new HashedWheelTimeout(this, task, deadline);
         timeouts.add(timeout);
         return timeout;
@@ -429,15 +435,16 @@ public class HashedWheelTimer implements Timer {
         @Override
         public void run() {
             // Initialize the startTime.
-            startTime = System.nanoTime();
+            startTime = System.nanoTime();//启动时间设置了，证明超时校验线程开始跑了，
             if (startTime == 0) {
                 // We use 0 as an indicator for the uninitialized value here, so make sure it's not 0 when initialized.
                 startTime = 1;
             }
 
             // Notify the other threads waiting for the initialization at start().
-            startTimeInitialized.countDown();
+            startTimeInitialized.countDown();//唤醒执行start()的线程
 
+            //KKEY 超时校验逻辑
             do {
                 final long deadline = waitForNextTick();
                 if (deadline > 0) {
@@ -449,9 +456,10 @@ public class HashedWheelTimer implements Timer {
                     bucket.expireTimeouts(deadline);
                     tick++;
                 }
-            } while (WORKER_STATE_UPDATER.get(HashedWheelTimer.this) == WORKER_STATE_STARTED);
+            } while (WORKER_STATE_UPDATER.get(HashedWheelTimer.this) == WORKER_STATE_STARTED);//KKEY 只要线程状态是正常的，就一直循环执行
 
             // Fill the unprocessedTimeouts so we can return them from stop() method.
+            //KKEY 线程状态为SHUTDOWN时，跳出上面的循环，执行善后逻辑
             for (HashedWheelBucket bucket : wheel) {
                 bucket.clearTimeouts(unprocessedTimeouts);
             }

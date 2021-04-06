@@ -96,7 +96,7 @@ public class DubboProtocol extends AbstractProtocol {
             }
 
             Invocation inv = (Invocation) message;
-            Invoker<?> invoker = getInvoker(channel, inv);//获取暴露服务的invoker，从暴露缓存exportMap中获取
+            Invoker<?> invoker = getInvoker(channel, inv);//KKEY 获取暴露服务的invoker，从暴露缓存exportMap中获取
             if (Boolean.TRUE.toString().equals(inv.getAttachments().get(IS_CALLBACK_SERVICE_INVOKE))) {
                 String methodsStr = invoker.getUrl().getParameters().get("methods");
                 boolean hasMethod = false;
